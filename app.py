@@ -9,6 +9,7 @@ st.set_page_config(page_title="Tablet PDF Splitter", layout="centered")
 # Set up a temporary folder on the cloud server
 if "temp_dir" not in st.session_state:
     st.session_state.temp_dir = tempfile.mkdtemp()
+if "processed_files" not in st.session_state:
     st.session_state.processed_files =[]
 
 def process_and_split(uploaded_file, split_mode, value):
@@ -65,17 +66,17 @@ st.write("Designed for Streamlit Cloud. Downloads are split into parts so your t
 uploaded_file = st.file_uploader("Upload Harrison's PDF here", type="pdf")
 
 if uploaded_file:
-    col1, col2 = st.columns(2)
-    with col1:
-        mode = st.radio("Split Method",["By Page Interval", "By Number of Slices"])
-    with col2:
-        if mode == "By Page Interval":
-            val = st.number_input("Pages per PDF", min_value=1, value=500)
-        else:
-            val = st.number_input("Total number of slices", min_value=1, value=4)
-
-    # Only show the process button if we haven't processed yet
+    # Only show the options and process button if we haven't processed yet
     if not st.session_state.processed_files:
+        col1, col2 = st.columns(2)
+        with col1:
+            mode = st.radio("Split Method", ["By Page Interval", "By Number of Slices"])
+        with col2:
+            if mode == "By Page Interval":
+                val = st.number_input("Pages per PDF", min_value=1, value=500)
+            else:
+                val = st.number_input("Total number of slices", min_value=1, value=4)
+
         if st.button("🚀 Process Book"):
             with st.spinner("Slicing massive book... Please keep this page open."):
                 try:
@@ -101,5 +102,8 @@ if st.session_state.processed_files:
                 key=file_name # Unique key for each button
             )
             
+    st.markdown("---")
+    # This was the line that got cut off previously!
     if st.button("🗑️ Clear and Start Over"):
-        st.session_state.processed_files =
+        st.session_state.processed_files =[]
+        st.rerun()
