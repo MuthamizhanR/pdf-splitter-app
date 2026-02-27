@@ -1,25 +1,21 @@
 import streamlit as st
 import pikepdf
-import tempfile
-import zipfile
 import os
 import gc
 
 st.set_page_config(page_title="Heavy Duty PDF Splitter", layout="centered")
 
-def split_pdf_on_disk(uploaded_file, split_mode, value):
-    # 1. Create a temporary folder on the DISK (Not RAM)
-    temp_dir = tempfile.mkdtemp()
+def split_pdf_direct_save(uploaded_file, split_mode, value):
+    # 1. Create a folder right next to this script on your computer
+    output_dir = os.path.join(os.getcwd(), "Split_Harrison_Books")
+    os.makedirs(output_dir, exist_ok=True)
     
-    # 2. Save the uploaded massive file to the hard drive immediately
-    input_pdf_path = os.path.join(temp_dir, "input.pdf")
+    # 2. Save the uploaded file to disk temporarily to save RAM
+    input_pdf_path = os.path.join(output_dir, "temp_input.pdf")
     with open(input_pdf_path, "wb") as f:
-        # getbuffer() uses less memory than getvalue()
         f.write(uploaded_file.getbuffer()) 
     
-    zip_path = os.path.join(temp_dir, "split_pdfs.zip")
-    
-    # 3. Read from disk to save RAM
+    # 3. Read and Split
     with pikepdf.open(input_pdf_path) as pdf:
         total_pages = len(pdf.pages)
         
@@ -36,41 +32,35 @@ def split_pdf_on_disk(uploaded_file, split_mode, value):
                 if start < total_pages:
                     ranges.append((start, end))
 
-        # 4. Create ZIP directly on disk
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # 4. Save directly to the folder (No ZIP, No Download Button!)
+        for idx, (start, end) in enumerate(ranges):
+            new_pdf = pikepdf.Pdf.new()
+            new_pdf.pages.extend(pdf.pages[start:end]) 
             
-            # Progress bar for the user
-            progress_bar = st.progress(0)
+            chunk_name = f"Harrison_Part_{idx+1}_Pages_{start+1}-{end}.pdf"
+            chunk_path = os.path.join(output_dir, chunk_name)
             
-            for idx, (start, end) in enumerate(ranges):
-                new_pdf = pikepdf.Pdf.new()
-                
-                # Faster page append
-                new_pdf.pages.extend(pdf.pages[start:end]) 
-                
-                chunk_name = f"Harrison_Part_{idx+1}_Pages_{start+1}-{end}.pdf"
-                chunk_path = os.path.join(temp_dir, chunk_name)
-                
-                # Save chunk to disk, NOT memory
-                new_pdf.save(chunk_path)
-                new_pdf.close()
-                
-                # Write to zip
-                zipf.write(chunk_path, arcname=chunk_name)
-                
-                # Delete the unzipped chunk immediately to save space
-                os.remove(chunk_path)
-                gc.collect() # Force RAM cleanup
-                
-                # Update progress
-                progress_bar.progress((idx + 1) / len(ranges))
-                
-    return zip_path, total_pages
+            # Save straight to computer drive
+            new_pdf.save(chunk_path)
+            new_pdf.close()
+            
+            gc.collect() # Clean RAM
+            
+            # Update UI
+            progress_bar.progress((idx + 1) / len(ranges))
+            status_text.text(f"✅ Saved: {chunk_name} straight to folder!")
+            
+    # Clean up the temporary heavy input file
+    os.remove(input_pdf_path)
+    return output_dir, total_pages
 
-st.title("📚 Heavy Duty PDF Splitter")
-st.write("Optimized to split massive medical books (like Harrison's) without crashing.")
+st.title("📚 Heavy Duty PDF Splitter (Local Export)")
+st.write("Bypasses browser downloads to safely split massive medical books.")
 
-uploaded_file = st.file_uploader("Upload massive PDF here", type="pdf")
+uploaded_file = st.file_uploader("Upload Harrison's PDF here", type="pdf")
 
 if uploaded_file:
     col1, col2 = st.columns(2)
@@ -82,21 +72,15 @@ if uploaded_file:
         else:
             val = st.number_input("Total number of slices", min_value=1, value=4)
 
-    if st.button("🚀 Process & Split (Disk Mode)"):
-        with st.spinner("Processing massive file... Please wait. Do not refresh."):
+    if st.button("🚀 Process & Save Directly to Computer"):
+        with st.spinner("Processing massive file... Please wait."):
             try:
-                # Run disk-based splitting
-                zip_path, total_pages = split_pdf_on_disk(uploaded_file, mode, val)
+                # Run the direct-save function
+                output_folder, total_pages = split_pdf_direct_save(uploaded_file, mode, val)
                 
-                st.success(f"Success! Processed {total_pages} pages.")
+                st.success(f"🎉 Success! Processed {total_pages} pages.")
+                st.info(f"📁 You don't need to download anything. Open the folder located at:\n\n**{output_folder}**\n\nYour split PDFs are already waiting inside!")
+                st.balloons()
                 
-                # Provide download directly from disk file
-                with open(zip_path, "rb") as fp:
-                    st.download_button(
-                        label="⬇️ Download Split PDFs (ZIP)",
-                        data=fp,
-                        file_name="split_textbook.zip",
-                        mime="application/zip"
-                    )
             except Exception as e:
                 st.error(f"Error: {e}")
