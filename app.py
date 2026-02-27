@@ -1,21 +1,25 @@
 import streamlit as st
 import pikepdf
 import os
+import tempfile
 import gc
 
-st.set_page_config(page_title="Heavy Duty PDF Splitter", layout="centered")
+st.set_page_config(page_title="Tablet PDF Splitter", layout="centered")
 
-def split_pdf_direct_save(uploaded_file, split_mode, value):
-    # 1. Create a folder right next to this script on your computer
-    output_dir = os.path.join(os.getcwd(), "Split_Harrison_Books")
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # 2. Save the uploaded file to disk temporarily to save RAM
-    input_pdf_path = os.path.join(output_dir, "temp_input.pdf")
+# Set up a temporary folder on the cloud server
+if "temp_dir" not in st.session_state:
+    st.session_state.temp_dir = tempfile.mkdtemp()
+    st.session_state.processed_files =[]
+
+def process_and_split(uploaded_file, split_mode, value):
+    # 1. Save uploaded massive file to the cloud disk to save RAM
+    input_pdf_path = os.path.join(st.session_state.temp_dir, "harrison_input.pdf")
     with open(input_pdf_path, "wb") as f:
         f.write(uploaded_file.getbuffer()) 
     
-    # 3. Read and Split
+    output_files =[]
+    
+    # 2. Read from disk 
     with pikepdf.open(input_pdf_path) as pdf:
         total_pages = len(pdf.pages)
         
@@ -33,32 +37,30 @@ def split_pdf_direct_save(uploaded_file, split_mode, value):
                     ranges.append((start, end))
 
         progress_bar = st.progress(0)
-        status_text = st.empty()
         
-        # 4. Save directly to the folder (No ZIP, No Download Button!)
+        # 3. Process each chunk and save to cloud disk temporarily
         for idx, (start, end) in enumerate(ranges):
             new_pdf = pikepdf.Pdf.new()
             new_pdf.pages.extend(pdf.pages[start:end]) 
             
             chunk_name = f"Harrison_Part_{idx+1}_Pages_{start+1}-{end}.pdf"
-            chunk_path = os.path.join(output_dir, chunk_name)
+            chunk_path = os.path.join(st.session_state.temp_dir, chunk_name)
             
-            # Save straight to computer drive
             new_pdf.save(chunk_path)
             new_pdf.close()
             
-            gc.collect() # Clean RAM
+            output_files.append((chunk_name, chunk_path))
+            gc.collect() # Keep Cloud RAM clean!
             
-            # Update UI
             progress_bar.progress((idx + 1) / len(ranges))
-            status_text.text(f"✅ Saved: {chunk_name} straight to folder!")
             
-    # Clean up the temporary heavy input file
+    # Save the list of files to session state so buttons don't disappear
+    st.session_state.processed_files = output_files
+    # Delete massive input file to free up cloud space
     os.remove(input_pdf_path)
-    return output_dir, total_pages
 
-st.title("📚 Heavy Duty PDF Splitter (Local Export)")
-st.write("Bypasses browser downloads to safely split massive medical books.")
+st.title("📱 Tablet-Optimized PDF Splitter")
+st.write("Designed for Streamlit Cloud. Downloads are split into parts so your tablet browser won't crash.")
 
 uploaded_file = st.file_uploader("Upload Harrison's PDF here", type="pdf")
 
@@ -72,15 +74,32 @@ if uploaded_file:
         else:
             val = st.number_input("Total number of slices", min_value=1, value=4)
 
-    if st.button("🚀 Process & Save Directly to Computer"):
-        with st.spinner("Processing massive file... Please wait."):
-            try:
-                # Run the direct-save function
-                output_folder, total_pages = split_pdf_direct_save(uploaded_file, mode, val)
-                
-                st.success(f"🎉 Success! Processed {total_pages} pages.")
-                st.info(f"📁 You don't need to download anything. Open the folder located at:\n\n**{output_folder}**\n\nYour split PDFs are already waiting inside!")
-                st.balloons()
-                
-            except Exception as e:
-                st.error(f"Error: {e}")
+    # Only show the process button if we haven't processed yet
+    if not st.session_state.processed_files:
+        if st.button("🚀 Process Book"):
+            with st.spinner("Slicing massive book... Please keep this page open."):
+                try:
+                    process_and_split(uploaded_file, mode, val)
+                    st.success("✅ Book successfully sliced!")
+                    st.rerun() # Refresh page to show download buttons
+                except Exception as e:
+                    st.error(f"Error during processing: {e}")
+
+# If files are processed, show individual download buttons!
+if st.session_state.processed_files:
+    st.write("### 📥 Download Your Split Files")
+    st.info("Download them one by one to prevent your tablet browser from timing out.")
+    
+    for file_name, file_path in st.session_state.processed_files:
+        # Open file directly from disk into the download button to save RAM
+        with open(file_path, "rb") as f:
+            st.download_button(
+                label=f"⬇️ Download {file_name}",
+                data=f,
+                file_name=file_name,
+                mime="application/pdf",
+                key=file_name # Unique key for each button
+            )
+            
+    if st.button("🗑️ Clear and Start Over"):
+        st.session_state.processed_files =
